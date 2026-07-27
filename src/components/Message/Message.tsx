@@ -20,6 +20,9 @@ import { useContactByAddress } from "@/queries/useContacts";
 import { formatPhoneNumber } from "@/utils/FormatUtils";
 import { AVATAR_BG_COLORS, AVATAR_TEXT_COLORS } from "@/utils/colors";
 import type { Json } from "@/supabase/db_types";
+import type { ConversationRow } from "@/supabase/client";
+import MessageReactions from "./MessageReactions";
+import { type AggregatedReaction } from "@/utils/ReactionUtils";
 
 const md = new Remarkable({
   breaks: true,
@@ -400,7 +403,15 @@ type UIMessage = {
   senderName?: string;
 };
 
-export default function Message(props: UIMessage & { message: MessageRow }) {
+export default function Message(
+  props: UIMessage & {
+    message: MessageRow;
+    conversation?: ConversationRow;
+    reactions?: AggregatedReaction[];
+    ownReaction?: string;
+    canReact?: boolean;
+  },
+) {
   const { translate: t } = useTranslation();
 
   // Group conversations (whatsapp-web): incoming rows carry the actual sender in
@@ -575,6 +586,14 @@ export default function Message(props: UIMessage & { message: MessageRow }) {
           {content}
         </OutMessage>
       )}
+      <MessageReactions
+        message={props.message}
+        conversation={props.conversation}
+        reactions={props.reactions || []}
+        ownReaction={props.ownReaction}
+        canReact={props.canReact || false}
+        align={props.message.direction === "incoming" ? "left" : "right"}
+      />
     </>
   );
 }

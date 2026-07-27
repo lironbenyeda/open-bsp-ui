@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useMemo, useRef } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
 import "dayjs/locale/pt";
@@ -11,6 +11,14 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useCurrentOrganization } from "@/queries/useOrganizations";
 import { useCurrentAgent } from "@/queries/useAgents";
 import { AVATAR_COLORS } from "@/utils/colors";
+import {
+  buildReactionIndex,
+  getAggregatedReactions,
+  getOwnReactionEmoji,
+  isReactionMessage,
+  supportsReactions,
+} from "@/utils/ReactionUtils";
+import { TickContext } from "@/contexts/useTick";
 
 type EnvelopeType = { message: MessageRow; first: boolean; last: boolean };
 type SeparatorType = { text: string; first: true; last: true };
@@ -41,6 +49,9 @@ function Separator({ text }: { text: string }) {
 
 export default function Chat() {
   const activeConvId = useBoundStore((store) => store.ui.activeConvId);
+  const conv = useBoundStore((store) =>
+    store.chat.conversations.get(store.ui.activeConvId || ""),
+  );
   const messages = Array.from(
     useBoundStore((store) =>
       store.chat.messages.get(store.ui.activeConvId || ""),
@@ -58,6 +69,19 @@ export default function Chat() {
   const { data: agent } = useCurrentAgent();
   const activeAgentId = agent?.id;
   const isAdmin = ["admin", "owner"].includes(agent?.extra?.role || "");
+
+  const tick = useContext(TickContext);
+
+  const mostRecentIncoming = messages.find(
+    (msg) => msg.direction === "incoming" && !isReactionMessage(msg),
+  );
+
+  const canReact =
+    supportsReactions(conv?.service) &&
+    ((conv?.service !== "whatsapp" && conv?.service !== "instagram") ||
+      tick.isBefore(dayjs(mostRecentIncoming?.timestamp || 0).add(1, "day")));
+
+  const reactionIndex = useMemo(() => buildReactionIndex(messages), [messages]);
 
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -246,6 +270,8 @@ export default function Chat() {
   const envelopesAndSeparators = insertDateSeparators(
     messages
       .filter((m, idx) => {
+        if (isReactionMessage(m)) return false;
+
         if (isAdmin) return true;
 
         // Hide internal messages for non-admin users
@@ -286,6 +312,17 @@ export default function Chat() {
                 orgName={orgName}
                 convName={convName}
                 avatar={getAgentAvatar(envOrSep.message.agent_id)}
+                conversation={conv}
+                reactions={getAggregatedReactions(
+                  envOrSep.message,
+                  reactionIndex,
+                )}
+                ownReaction={getOwnReactionEmoji(
+                  envOrSep.message,
+                  reactionIndex,
+                  activeAgentId,
+                )}
+                canReact={canReact}
               />
             ) : (
               <Separator key={index} text={envOrSep.text} />
