@@ -8,6 +8,7 @@ import {
   supabase,
 } from "@/supabase/client";
 import useBoundStore from "@/stores/useBoundStore";
+import { pushConversationToDb } from "@/utils/ConversationUtils";
 
 export function newMessage(
   conv: ConversationRow,
@@ -76,4 +77,31 @@ export async function pushMessageToDb(
   if (insertQuery.error) {
     throw insertQuery.error;
   }
+}
+
+export async function sendReaction(
+  conv: ConversationRow,
+  targetExternalId: string,
+  emoji: string,
+  agentId?: string,
+) {
+  if (!conv.updated_at) {
+    await pushConversationToDb(conv);
+  }
+
+  const record = newMessage(
+    conv,
+    "outgoing",
+    {
+      version: "1",
+      type: "text",
+      kind: "reaction",
+      text: emoji,
+      re_message_id: targetExternalId,
+    },
+    agentId,
+  );
+
+  pushMessageToStore(record);
+  await pushMessageToDb(record);
 }

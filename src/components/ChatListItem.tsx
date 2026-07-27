@@ -19,6 +19,7 @@ import { TickContext } from "@/contexts/useTick";
 import { useTranslation } from "@/hooks/useTranslation";
 import { AtSign, Pause } from "lucide-react";
 import { mediaCategory } from "./Message/media";
+import { isReactionMessage } from "@/utils/ReactionUtils";
 
 import { useCurrentAgent, useCurrentAgents } from "@/queries/useAgents";
 import { useContactByAddress } from "@/queries/useContacts";
@@ -185,7 +186,7 @@ export default function ChatListItem({ itemId }: { itemId: string }) {
 
   // If the role is not admin, then do not show internal messages.
   const mostRecent = messages?.find(
-    (m) => isAdmin || m.direction !== "internal",
+    (m) => (isAdmin || m.direction !== "internal") && !isReactionMessage(m),
   );
 
   // Group previews are prefixed with the sender name, as in WhatsApp Web.
@@ -228,6 +229,10 @@ export default function ChatListItem({ itemId }: { itemId: string }) {
 
     // Messages are sorted by most recent first.
     for (const msg of messages) {
+      if (isReactionMessage(msg)) {
+        continue;
+      }
+
       if (msg.direction === "incoming" && !countBreak) {
         count += 1;
       } else if (
