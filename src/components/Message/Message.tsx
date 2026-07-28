@@ -305,7 +305,7 @@ export function InMessage({
     <div
       className={
         (avatar ? avatarMsgRowClasses : msgRowClasses) +
-        " justify-start" +
+        " justify-start group/message" +
         (last ? " mb-[12px]" : " mb-[2px]")
       }
     >
@@ -354,7 +354,7 @@ export function OutMessage({
     <div
       className={
         (avatar ? avatarMsgRowClasses : msgRowClasses) +
-        " justify-end" +
+        " justify-end group/message" +
         (last ? " mb-[12px]" : " mb-[2px]")
       }
     >
@@ -566,11 +566,26 @@ export default function Message(
     }
   }
 
+  const align = props.message.direction === "incoming" ? "left" : "right";
+
+  const reactionPicker = (
+    <MessageReactions
+      message={props.message}
+      conversation={props.conversation}
+      reactions={[]}
+      ownReaction={props.ownReaction}
+      canReact={props.canReact || false}
+      align={align}
+      picker
+    />
+  );
+
   return (
     <>
       {props.message.direction === "incoming" && (
         <InMessage {...{ ...props, text, fixedWidth, senderName }}>
           {content}
+          {reactionPicker}
         </InMessage>
       )}
       {(props.message.direction === "outgoing" ||
@@ -584,6 +599,7 @@ export default function Message(
           }}
         >
           {content}
+          {reactionPicker}
         </OutMessage>
       )}
       <MessageReactions
@@ -592,7 +608,7 @@ export default function Message(
         reactions={props.reactions || []}
         ownReaction={props.ownReaction}
         canReact={props.canReact || false}
-        align={props.message.direction === "incoming" ? "left" : "right"}
+        align={align}
       />
     </>
   );
