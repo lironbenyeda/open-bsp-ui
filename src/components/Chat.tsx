@@ -1,4 +1,11 @@
-import { useContext, useEffect, useMemo, useRef } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
 import "dayjs/locale/pt";
@@ -18,7 +25,13 @@ import {
   isReactionMessage,
   supportsReactions,
 } from "@/utils/ReactionUtils";
+import { fetchConversationMessages } from "@/utils/IdbUtils";
 import { TickContext } from "@/contexts/useTick";
+import Spinner from "./Spinner";
+
+const OLDER_PAGE_SIZE = 30;
+const SCROLL_TOP_LOAD_THRESHOLD_PX = 80;
+const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
 
 type EnvelopeType = { message: MessageRow; first: boolean; last: boolean };
 type SeparatorType = { text: string; first: true; last: true };
@@ -84,6 +97,26 @@ export default function Chat() {
   const reactionIndex = useMemo(() => buildReactionIndex(messages), [messages]);
 
   const scroller = useRef<HTMLDivElement>(null);
+  const pushMessages = useBoundStore((state) => state.chat.pushMessages);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const isLoadingOlderRef = useRef(false);
+  const hasMoreHistoryRef = useRef(true);
+  const stickToBottomRef = useRef(true);
+  const pendingScrollRestoreRef = useRef<{
+    prevScrollHeight: number;
+    prevScrollTop: number;
+  } | null>(null);
+  const prevConvIdRef = useRef(activeConvId);
+
+  // Reset pagination/scroll flags synchronously on conversation switch so the
+  // messages.length layout effect still sticks to bottom for the new chat.
+  if (prevConvIdRef.current !== activeConvId) {
+    prevConvIdRef.current = activeConvId;
+    hasMoreHistoryRef.current = true;
+    stickToBottomRef.current = true;
+    pendingScrollRestoreRef.current = null;
+    isLoadingOlderRef.current = false;
+  }
 
   const { translate: t, currentLanguage } = useTranslation();
 
@@ -228,31 +261,35 @@ export default function Chat() {
    */
 
   useEffect(() => {
-    const scrollerRef = scroller.current;
-
-    if (!scrollerRef || !scroller.current) {
-      return;
-    }
-  }, [messages.length, activeConvId]);
-
-  useEffect(() => {
+    setIsLoadingOlder(false);
     scrollToBottom(false);
   }, [activeConvId]);
 
-  // Keep the scroll at the bottom when new messages are added
-  // prevent the scroll from jumping when the user is reading old messages
-  useEffect(() => {
-    const scrollRef = scroller.current;
-    if (!scrollRef) {
+  // After prepending older messages, restore scroll so the viewport stays put.
+  // Otherwise stick to bottom when the user was already there (or on outgoing).
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+
+    const pending = pendingScrollRestoreRef.current;
+    if (pending) {
+      el.scrollTop =
+        el.scrollHeight - pending.prevScrollHeight + pending.prevScrollTop;
+      pendingScrollRestoreRef.current = null;
       return;
     }
-    scrollToBottom();
+
+    if (stickToBottomRef.current) {
+      scrollToBottom();
+    }
   }, [messages.length]);
 
   // Adjust scroll when visual viewport resizes (e.g. mobile keyboard opens)
   useEffect(() => {
     const handleResize = () => {
-      scrollToBottom(false);
+      if (stickToBottomRef.current) {
+        scrollToBottom(false);
+      }
     };
 
     if (window.visualViewport) {
@@ -265,6 +302,67 @@ export default function Chat() {
       }
     };
   }, []);
+
+  const loadOlderMessages = async () => {
+    if (
+      !activeConvId ||
+      isLoadingOlderRef.current ||
+      !hasMoreHistoryRef.current ||
+      messages.length === 0
+    ) {
+      return;
+    }
+
+    // Messages are stored most-recent-first; the last entry is the oldest loaded.
+    const oldest = messages[messages.length - 1];
+    if (!oldest) return;
+
+    const el = scroller.current;
+    pendingScrollRestoreRef.current = {
+      prevScrollHeight: el?.scrollHeight ?? 0,
+      prevScrollTop: el?.scrollTop ?? 0,
+    };
+    isLoadingOlderRef.current = true;
+    setIsLoadingOlder(true);
+
+    try {
+      const older = await fetchConversationMessages(
+        activeConvId,
+        oldest.timestamp,
+        OLDER_PAGE_SIZE,
+      );
+
+      if (older.length < OLDER_PAGE_SIZE) {
+        hasMoreHistoryRef.current = false;
+      }
+
+      if (older.length === 0) {
+        pendingScrollRestoreRef.current = null;
+        return;
+      }
+
+      pushMessages(older);
+    } catch (err) {
+      console.error(err);
+      pendingScrollRestoreRef.current = null;
+    } finally {
+      isLoadingOlderRef.current = false;
+      setIsLoadingOlder(false);
+    }
+  };
+
+  const handleScroll = () => {
+    const el = scroller.current;
+    if (!el) return;
+
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <
+      STICK_TO_BOTTOM_THRESHOLD_PX;
+
+    if (el.scrollTop < SCROLL_TOP_LOAD_THRESHOLD_PX) {
+      void loadOlderMessages();
+    }
+  };
 
   // If the role is not admin, then do not show internal messages (tool calls, etc).
   const envelopesAndSeparators = insertDateSeparators(
@@ -298,9 +396,12 @@ export default function Chat() {
     activeConvId && (
       <div
         ref={scroller}
+        onScroll={handleScroll}
         className="grow pb-[8px] overflow-y-auto [scrollbar-gutter:stable]"
       >
-        <div className="min-h-[12px]" />
+        <div className="min-h-[12px] flex justify-center items-center py-1">
+          {isLoadingOlder && <Spinner size={16} />}
+        </div>
         <div className="flex flex-col">
           {envelopesAndSeparators.map((envOrSep, index) =>
             "message" in envOrSep ? (
