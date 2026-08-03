@@ -22,7 +22,11 @@ import { AVATAR_BG_COLORS, AVATAR_TEXT_COLORS } from "@/utils/colors";
 import type { Json } from "@/supabase/db_types";
 import type { ConversationRow } from "@/supabase/client";
 import MessageReactions from "./MessageReactions";
+import ReplyQuote from "./ReplyQuote";
+import ReplyButton from "./ReplyButton";
 import { type AggregatedReaction } from "@/utils/ReactionUtils";
+import { canReplyToMessage, isReplyMessage } from "@/utils/ReplyUtils";
+import useBoundStore from "@/stores/useBoundStore";
 
 const md = new Remarkable({
   breaks: true,
@@ -410,9 +414,14 @@ export default function Message(
     reactions?: AggregatedReaction[];
     ownReaction?: string;
     canReact?: boolean;
+    canReply?: boolean;
+    repliedTo?: MessageRow;
   },
 ) {
   const { translate: t } = useTranslation();
+  const setConversationReplyTo = useBoundStore(
+    (store) => store.chat.setConversationReplyTo,
+  );
 
   // Group conversations (whatsapp-web): incoming rows carry the actual sender in
   // contact_address. Resolve a friendly label to attribute each message.
@@ -427,6 +436,41 @@ export default function Message(
   const senderName = isGroupIncoming
     ? senderContact?.name || formatPhoneNumber(props.message.contact_address!)
     : undefined;
+
+  // Label for the quoted (replied-to) message.
+  const repliedTo = props.repliedTo;
+  const isGroupReplyIncoming =
+    !!repliedTo?.group_address &&
+    repliedTo.direction === "incoming" &&
+    !!repliedTo.contact_address;
+  const { data: replySenderContact } = useContactByAddress(
+    isGroupReplyIncoming ? repliedTo?.contact_address : undefined,
+    repliedTo?.service,
+  );
+  const { data: replyAgent } = useAgent(
+    (repliedTo && repliedTo.direction !== "incoming" && repliedTo.agent_id) ||
+      "",
+  );
+
+  let replySenderLabel = t("Mensaje");
+  if (repliedTo) {
+    if (repliedTo.direction === "incoming") {
+      replySenderLabel =
+        replySenderContact?.name ||
+        (isGroupReplyIncoming
+          ? formatPhoneNumber(repliedTo.contact_address!)
+          : props.convName) ||
+        t("Contacto");
+    } else {
+      replySenderLabel = replyAgent?.name || t("Tú");
+    }
+  }
+
+  const showReplyQuote = isReplyMessage(props.message);
+  const replyable = canReplyToMessage(
+    props.message,
+    !!props.canReply && !!props.conversation,
+  );
 
   let content;
   let text = false;
@@ -568,6 +612,16 @@ export default function Message(
 
   const align = props.message.direction === "incoming" ? "left" : "right";
 
+  // Reaction picker is rendered when canReact — ReplyButton shifts aside so they
+  // don't overlap on hover.
+  const showReactionPicker = !!(
+    props.canReact &&
+    props.conversation &&
+    props.message.external_id &&
+    (props.message.direction === "incoming" ||
+      props.message.direction === "outgoing")
+  );
+
   const reactionPicker = (
     <MessageReactions
       message={props.message}
@@ -580,12 +634,49 @@ export default function Message(
     />
   );
 
-  return (
+  const replyButton = replyable ? (
+    <ReplyButton
+      align={align}
+      offsetForReactions={showReactionPicker}
+      onReply={() => {
+        if (!props.message.id || !props.conversation) {
+          return;
+        }
+        setConversationReplyTo(props.conversation.id, props.message.id);
+      }}
+    />
+  ) : null;
+
+  const quote = showReplyQuote ? (
+    <ReplyQuote
+      message={repliedTo}
+      senderLabel={replySenderLabel}
+      onClick={
+        repliedTo?.id
+          ? () => {
+              document
+                .getElementById(`msg-${repliedTo.id}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          : undefined
+      }
+    />
+  ) : null;
+
+  const bubbleBody = (
     <>
+      {quote}
+      {content}
+      {reactionPicker}
+      {replyButton}
+    </>
+  );
+
+  return (
+    <div id={props.message.id ? `msg-${props.message.id}` : undefined}>
       {props.message.direction === "incoming" && (
         <InMessage {...{ ...props, text, fixedWidth, senderName }}>
-          {content}
-          {reactionPicker}
+          {bubbleBody}
         </InMessage>
       )}
       {(props.message.direction === "outgoing" ||
@@ -598,8 +689,7 @@ export default function Message(
             fixedWidth,
           }}
         >
-          {content}
-          {reactionPicker}
+          {bubbleBody}
         </OutMessage>
       )}
       <MessageReactions
@@ -610,6 +700,6 @@ export default function Message(
         canReact={props.canReact || false}
         align={align}
       />
-    </>
+    </div>
   );
 }

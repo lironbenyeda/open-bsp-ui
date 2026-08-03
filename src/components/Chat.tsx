@@ -25,6 +25,7 @@ import {
   isReactionMessage,
   supportsReactions,
 } from "@/utils/ReactionUtils";
+import { buildExternalIdIndex, replyTargetId } from "@/utils/ReplyUtils";
 import { fetchConversationMessages } from "@/utils/IdbUtils";
 import { TickContext } from "@/contexts/useTick";
 import Spinner from "./Spinner";
@@ -95,6 +96,10 @@ export default function Chat() {
       tick.isBefore(dayjs(mostRecentIncoming?.timestamp || 0).add(1, "day")));
 
   const reactionIndex = useMemo(() => buildReactionIndex(messages), [messages]);
+  const messagesByExternalId = useMemo(
+    () => buildExternalIdIndex(messages),
+    [messages],
+  );
 
   const scroller = useRef<HTMLDivElement>(null);
   const pushMessages = useBoundStore((state) => state.chat.pushMessages);
@@ -424,6 +429,10 @@ export default function Chat() {
                   activeAgentId,
                 )}
                 canReact={canReact}
+                canReply={canReact}
+                repliedTo={messagesByExternalId.get(
+                  replyTargetId(envOrSep.message) || "",
+                )}
               />
             ) : (
               <Separator key={index} text={envOrSep.text} />

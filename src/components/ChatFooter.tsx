@@ -22,6 +22,8 @@ import { useCurrentAgent } from "@/queries/useAgents";
 import { moveCursorToEnd } from "@/utils/UtilityFunctions";
 import { htmlToMarkdown } from "@/utils/htmlToMarkdown";
 import TemplatePicker from "./TemplatePicker";
+import ReplyQuote from "./Message/ReplyQuote";
+import { useReplyDraft } from "@/hooks/useReplyDraft";
 
 function TemplateVarInput({
   placeholder,
@@ -108,12 +110,14 @@ export default function ChatFooter() {
   const { data: agent } = useCurrentAgent();
   const agentId = agent?.id;
 
+  const { translate: t, currentLanguage } = useTranslation();
+
+  const { replyToMessage, replySenderLabel, clearReply } = useReplyDraft();
+
   const [timer, setTimer] = useState<ReturnType<typeof setTimeout>>();
 
   const editableDiv = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-
-  const { translate: t, currentLanguage } = useTranslation();
 
   const tick = useContext(TickContext); // one-minute ticks
 
@@ -240,6 +244,18 @@ export default function ChatFooter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConvId, draft]);
 
+  // Focus the composer when the user starts a reply.
+  useEffect(() => {
+    if (!replyToMessage || !editableDiv.current || !inCSWindow) {
+      return;
+    }
+
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      moveCursorToEnd(editableDiv.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyToMessage?.id]);
+
   const sendTextMessage = async () => {
     if (!activeConvId || !conv || !message) {
       return;
@@ -258,6 +274,9 @@ export default function ChatFooter() {
         type: "text",
         kind: "text",
         text: message,
+        ...(replyToMessage?.external_id
+          ? { re_message_id: replyToMessage.external_id }
+          : {}),
       },
       agentId,
     );
@@ -266,6 +285,7 @@ export default function ChatFooter() {
     await pushMessageToDb(record);
 
     setMessage("");
+    clearReply();
     // TODO: optimization: combine with the updateConvExtra call - cabra 2025-01-16
     draft && saveDraft(conv, "", sendAsContact);
 
@@ -470,6 +490,14 @@ export default function ChatFooter() {
     conv && (
       <div className="relative mx-[12px] mb-[12px] mt-[4px] lg:mt-[0px] z-10">
         {templatePicker && <TemplatePicker />}
+        {replyToMessage && !templateDraft && (
+          <ReplyQuote
+            message={replyToMessage}
+            senderLabel={replySenderLabel}
+            title={t("Respondiendo a")}
+            onDismiss={clearReply}
+          />
+        )}
         <div
           className={
             "flex items-end text-foreground p-[5px] rounded-[24px] shadow-[0_0_4px_0px_rgba(0,0,0,0.1)]" +
