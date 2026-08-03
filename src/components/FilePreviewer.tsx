@@ -16,6 +16,8 @@ import { pushConversationToDb } from "@/utils/ConversationUtils";
 import { useCurrentAgent } from "@/queries/useAgents";
 import { moveCursorToEnd } from "@/utils/UtilityFunctions";
 import { htmlToMarkdown } from "@/utils/htmlToMarkdown";
+import ReplyQuote from "@/components/Message/ReplyQuote";
+import { useReplyDraft } from "@/hooks/useReplyDraft";
 
 const FilePreviewer = () => {
   const { translate: t } = useTranslation();
@@ -42,6 +44,7 @@ const FilePreviewer = () => {
   );
   const sendAsContact = useBoundStore((store) => store.ui.sendAsContact);
   const setMediaLoad = useBoundStore((store) => store.chat.setMediaLoad);
+  const { replyToMessage, replySenderLabel, clearReply } = useReplyDraft();
 
   const [previewIndex, setPreviewIndex] = useState(0);
 
@@ -168,6 +171,9 @@ const FilePreviewer = () => {
             size: draft.file.size,
           },
           text: draft.caption, // caption
+          ...(replyToMessage?.external_id
+            ? { re_message_id: replyToMessage.external_id }
+            : {}),
         },
         agentId,
         draft.file,
@@ -183,6 +189,7 @@ const FilePreviewer = () => {
     }
 
     setConversationTextDraft(activeConvId, "");
+    clearReply();
     (conv.extra as any)?.draft && saveDraft(conv, "", sendAsContact);
     resetFiles();
   };
@@ -247,39 +254,49 @@ const FilePreviewer = () => {
         {/* Caption input */}
         <div className="shrink-0 py-[8px] mx-[80px] flex justify-center items-center">
           <div className="relative grow max-w-[650px]">
-            <div
-              ref={editableDiv}
-              contentEditable
-              className="w-full py-[10px] px-[16px] bg-incoming-chat-bubble rounded-lg outline-none max-h-20 overflow-y-auto text-[17px] leading-[24px] break-words"
-              onInput={(event) => {
-                if (!(event.target instanceof Element)) {
-                  return;
-                }
-
-                setConversationFileDraftCaption(
-                  activeConvId,
-                  previewIndex,
-                  htmlToMarkdown(event.currentTarget.innerHTML),
-                );
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && event.ctrlKey) {
-                  // toggle("sendAsContact") is handled at window level, nonetheless this
-                  // no-op block prevents from sending the message when pressing ctrl+enter
-                } else if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  sendMediaMessages();
-                }
-              }}
-            />
-            {!previewDraft.caption && (
-              <div
-                className="absolute top-[10px] left-[16px] text-[17px] leading-[24px] text-muted-foreground pointer-events-none"
-                onClick={() => editableDiv.current?.focus()}
-              >
-                {t("Escribe un mensaje")}
-              </div>
+            {replyToMessage && (
+              <ReplyQuote
+                message={replyToMessage}
+                senderLabel={replySenderLabel}
+                title={t("Respondiendo a")}
+                onDismiss={clearReply}
+              />
             )}
+            <div className="relative">
+              <div
+                ref={editableDiv}
+                contentEditable
+                className="w-full py-[10px] px-[16px] bg-incoming-chat-bubble rounded-lg outline-none max-h-20 overflow-y-auto text-[17px] leading-[24px] break-words"
+                onInput={(event) => {
+                  if (!(event.target instanceof Element)) {
+                    return;
+                  }
+
+                  setConversationFileDraftCaption(
+                    activeConvId,
+                    previewIndex,
+                    htmlToMarkdown(event.currentTarget.innerHTML),
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && event.ctrlKey) {
+                    // toggle("sendAsContact") is handled at window level, nonetheless this
+                    // no-op block prevents from sending the message when pressing ctrl+enter
+                  } else if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    sendMediaMessages();
+                  }
+                }}
+              />
+              {!previewDraft.caption && (
+                <div
+                  className="absolute top-[10px] left-[16px] text-[17px] leading-[24px] text-muted-foreground pointer-events-none"
+                  onClick={() => editableDiv.current?.focus()}
+                >
+                  {t("Escribe un mensaje")}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

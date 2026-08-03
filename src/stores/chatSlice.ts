@@ -42,6 +42,8 @@ export type ChatState = {
   messages: Map<string, Map<string, MessageRow>>; // TODO: replace the nested maps with a data structure capable of prefix search (a Trie) - cabra 2024/07/26
   textDrafts: Map<string, string>;
   fileDrafts: Map<string, FileDraft[]>;
+  /** Per-conversation reply target (message id). Cleared on send/cancel. */
+  replyToIds: Map<string, string>;
   mediaLoads: Map<string, MediaLoad>;
 };
 
@@ -56,6 +58,7 @@ export type ChatActions = {
     draftIndex: number,
     caption: string,
   ) => void;
+  setConversationReplyTo: (convId: string, messageId: string | null) => void;
 };
 
 export type ChatSlice = ChatState & ChatActions;
@@ -74,6 +77,7 @@ export const createChatSlice: StateCreator<Partial<AppState>> = (
   messages: new Map(),
   textDrafts: new Map(),
   fileDrafts: new Map(),
+  replyToIds: new Map(),
   mediaLoads: new Map(),
   pushConversations: (convs: ConversationRow[]) =>
     set((state) => {
@@ -217,6 +221,24 @@ export const createChatSlice: StateCreator<Partial<AppState>> = (
         chat: {
           ...state.chat,
           fileDrafts,
+        },
+      };
+    });
+  },
+  setConversationReplyTo: (convId: string, messageId: string | null) => {
+    set((state) => {
+      const replyToIds = new Map(state.chat.replyToIds);
+
+      if (messageId) {
+        replyToIds.set(convId, messageId);
+      } else {
+        replyToIds.delete(convId);
+      }
+
+      return {
+        chat: {
+          ...state.chat,
+          replyToIds,
         },
       };
     });

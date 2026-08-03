@@ -62,6 +62,7 @@ export default function TemplatePicker() {
       bodyVarValues: bodyExamples.map(() => ""),
       headVarValues: headExamples.map(() => ""),
     });
+    useBoundStore.getState().chat.setConversationReplyTo(activeConvId, null);
     toggle("templatePicker", false);
   }
 
