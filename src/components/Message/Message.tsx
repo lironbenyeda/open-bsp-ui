@@ -24,6 +24,7 @@ import type { ConversationRow } from "@/supabase/client";
 import MessageReactions from "./MessageReactions";
 import ReplyQuote from "./ReplyQuote";
 import ReplyButton from "./ReplyButton";
+import { useMessageActionTray } from "./useMessageActionTray";
 import { type AggregatedReaction } from "@/utils/ReactionUtils";
 import { canReplyToMessage, isReplyMessage } from "@/utils/ReplyUtils";
 import useBoundStore from "@/stores/useBoundStore";
@@ -304,14 +305,26 @@ export function InMessage({
   avatar,
   senderName,
   children,
-}: PropsWithChildren<UIMessage>) {
+  actionsOpen,
+  rootRef,
+  rowHandlers,
+}: PropsWithChildren<
+  UIMessage & {
+    actionsOpen?: boolean;
+    rootRef?: ReturnType<typeof useMessageActionTray>["rootRef"];
+    rowHandlers?: ReturnType<typeof useMessageActionTray>["rowHandlers"];
+  }
+>) {
   return (
     <div
+      ref={rootRef}
+      {...rowHandlers}
       className={
         (avatar ? avatarMsgRowClasses : msgRowClasses) +
         " justify-start group/message" +
         (last ? " mb-[12px]" : " mb-[2px]")
       }
+      data-actions-open={actionsOpen ? "" : undefined}
     >
       <div
         className={
@@ -353,14 +366,26 @@ export function OutMessage({
   children,
   avatar,
   internal,
-}: PropsWithChildren<UIMessage>) {
+  actionsOpen,
+  rootRef,
+  rowHandlers,
+}: PropsWithChildren<
+  UIMessage & {
+    actionsOpen?: boolean;
+    rootRef?: ReturnType<typeof useMessageActionTray>["rootRef"];
+    rowHandlers?: ReturnType<typeof useMessageActionTray>["rowHandlers"];
+  }
+>) {
   return (
     <div
+      ref={rootRef}
+      {...rowHandlers}
       className={
         (avatar ? avatarMsgRowClasses : msgRowClasses) +
         " justify-end group/message" +
         (last ? " mb-[12px]" : " mb-[2px]")
       }
+      data-actions-open={actionsOpen ? "" : undefined}
     >
       <div
         className={
@@ -422,6 +447,8 @@ export default function Message(
   const setConversationReplyTo = useBoundStore(
     (store) => store.chat.setConversationReplyTo,
   );
+  const { rootRef, actionsOpen, closeActions, rowHandlers } =
+    useMessageActionTray();
 
   // Group conversations (whatsapp-web): incoming rows carry the actual sender in
   // contact_address. Resolve a friendly label to attribute each message.
@@ -613,7 +640,7 @@ export default function Message(
   const align = props.message.direction === "incoming" ? "left" : "right";
 
   // Reaction picker is rendered when canReact — ReplyButton shifts aside so they
-  // don't overlap on hover.
+  // don't overlap.
   const showReactionPicker = !!(
     props.canReact &&
     props.conversation &&
@@ -643,6 +670,7 @@ export default function Message(
           return;
         }
         setConversationReplyTo(props.conversation.id, props.message.id);
+        closeActions();
       }}
     />
   ) : null;
@@ -672,10 +700,14 @@ export default function Message(
     </>
   );
 
+  const trayProps = { actionsOpen, rootRef, rowHandlers };
+
   return (
     <div id={props.message.id ? `msg-${props.message.id}` : undefined}>
       {props.message.direction === "incoming" && (
-        <InMessage {...{ ...props, text, fixedWidth, senderName }}>
+        <InMessage
+          {...{ ...props, text, fixedWidth, senderName, ...trayProps }}
+        >
           {bubbleBody}
         </InMessage>
       )}
@@ -687,6 +719,7 @@ export default function Message(
             text,
             internal: props.message.direction === "internal",
             fixedWidth,
+            ...trayProps,
           }}
         >
           {bubbleBody}

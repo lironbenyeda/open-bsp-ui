@@ -79,7 +79,7 @@ export const fetchConversationMessages = async (
   conversationId: string,
   beforeTimestamp: string,
   limit: number = 30,
-) => {
+): Promise<MessageRow[]> => {
   const { data, error } = await supabase
     .from("messages")
     .select()
@@ -92,7 +92,7 @@ export const fetchConversationMessages = async (
     throw error;
   }
 
-  return data;
+  return data ?? [];
 };
 
 // Update messages cache with new messages
