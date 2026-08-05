@@ -1,11 +1,4 @@
-import {
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useContext, useMemo } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
 import "dayjs/locale/pt";
@@ -17,6 +10,7 @@ import { type MessageRow } from "@/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useCurrentOrganization } from "@/queries/useOrganizations";
 import { useCurrentAgent } from "@/queries/useAgents";
+import { useChatScroll } from "@/hooks/useChatScroll";
 import { AVATAR_COLORS } from "@/utils/colors";
 import {
   buildReactionIndex,
@@ -26,13 +20,8 @@ import {
   supportsReactions,
 } from "@/utils/ReactionUtils";
 import { buildExternalIdIndex, replyTargetId } from "@/utils/ReplyUtils";
-import { fetchConversationMessages } from "@/utils/IdbUtils";
 import { TickContext } from "@/contexts/useTick";
 import Spinner from "./Spinner";
-
-const OLDER_PAGE_SIZE = 30;
-const SCROLL_TOP_LOAD_THRESHOLD_PX = 80;
-const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
 
 type EnvelopeType = { message: MessageRow; first: boolean; last: boolean };
 type SeparatorType = { text: string; first: true; last: true };
@@ -90,10 +79,11 @@ export default function Chat() {
     (msg) => msg.direction === "incoming" && !isReactionMessage(msg),
   );
 
-  const canReact =
-    supportsReactions(conv?.service) &&
-    ((conv?.service !== "whatsapp" && conv?.service !== "instagram") ||
-      tick.isBefore(dayjs(mostRecentIncoming?.timestamp || 0).add(1, "day")));
+  const canReply =
+    (conv?.service !== "whatsapp" && conv?.service !== "instagram") ||
+    tick.isBefore(dayjs(mostRecentIncoming?.timestamp || 0).add(1, "day"));
+
+  const canReact = supportsReactions(conv?.service) && canReply;
 
   const reactionIndex = useMemo(() => buildReactionIndex(messages), [messages]);
   const messagesByExternalId = useMemo(
@@ -101,27 +91,10 @@ export default function Chat() {
     [messages],
   );
 
-  const scroller = useRef<HTMLDivElement>(null);
-  const pushMessages = useBoundStore((state) => state.chat.pushMessages);
-  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  const isLoadingOlderRef = useRef(false);
-  const hasMoreHistoryRef = useRef(true);
-  const stickToBottomRef = useRef(true);
-  const pendingScrollRestoreRef = useRef<{
-    prevScrollHeight: number;
-    prevScrollTop: number;
-  } | null>(null);
-  const prevConvIdRef = useRef(activeConvId);
-
-  // Reset pagination/scroll flags synchronously on conversation switch so the
-  // messages.length layout effect still sticks to bottom for the new chat.
-  if (prevConvIdRef.current !== activeConvId) {
-    prevConvIdRef.current = activeConvId;
-    hasMoreHistoryRef.current = true;
-    stickToBottomRef.current = true;
-    pendingScrollRestoreRef.current = null;
-    isLoadingOlderRef.current = false;
-  }
+  const { scrollerRef, isLoadingOlder, onScroll } = useChatScroll(
+    activeConvId,
+    messages.length,
+  );
 
   const { translate: t, currentLanguage } = useTranslation();
 
@@ -239,136 +212,6 @@ export default function Chat() {
     return _chat;
   }
 
-  /* Actions that reset the unreads counter
-   * ======================================
-   *
-   *   Inactive conversation
-   *   ---------------------
-   *   [x] Opening the conversation (conv goes active)
-   *   [~] {X new messages} system message, it dissapears when conv goes inactive
-   *   [ ] Scroll starts at system message
-   *
-   *   Active conversations
-   *   --------------------
-   *   [x] Sending a message
-   *   [ ] Scrolling to bottom
-   *
-   * Scrolling behavior
-   * ==================
-   *
-   * If at bottom, it sticks
-   * New outgoing -> goes to bottom
-   * New incoming -> stays at place
-   *
-   * Telegram:
-   *   Remembers conv scroll position
-   *   Re-activating the conv -> goes to bottom
-   */
-
-  useEffect(() => {
-    setIsLoadingOlder(false);
-    scrollToBottom(false);
-  }, [activeConvId]);
-
-  // After prepending older messages, restore scroll so the viewport stays put.
-  // Otherwise stick to bottom when the user was already there (or on outgoing).
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-
-    const pending = pendingScrollRestoreRef.current;
-    if (pending) {
-      el.scrollTop =
-        el.scrollHeight - pending.prevScrollHeight + pending.prevScrollTop;
-      pendingScrollRestoreRef.current = null;
-      return;
-    }
-
-    if (stickToBottomRef.current) {
-      scrollToBottom();
-    }
-  }, [messages.length]);
-
-  // Adjust scroll when visual viewport resizes (e.g. mobile keyboard opens)
-  useEffect(() => {
-    const handleResize = () => {
-      if (stickToBottomRef.current) {
-        scrollToBottom(false);
-      }
-    };
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", handleResize);
-    }
-
-    return () => {
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", handleResize);
-      }
-    };
-  }, []);
-
-  const loadOlderMessages = async () => {
-    if (
-      !activeConvId ||
-      isLoadingOlderRef.current ||
-      !hasMoreHistoryRef.current ||
-      messages.length === 0
-    ) {
-      return;
-    }
-
-    // Messages are stored most-recent-first; the last entry is the oldest loaded.
-    const oldest = messages[messages.length - 1];
-    if (!oldest) return;
-
-    const el = scroller.current;
-    pendingScrollRestoreRef.current = {
-      prevScrollHeight: el?.scrollHeight ?? 0,
-      prevScrollTop: el?.scrollTop ?? 0,
-    };
-    isLoadingOlderRef.current = true;
-    setIsLoadingOlder(true);
-
-    try {
-      const older = await fetchConversationMessages(
-        activeConvId,
-        oldest.timestamp,
-        OLDER_PAGE_SIZE,
-      );
-
-      if (older.length < OLDER_PAGE_SIZE) {
-        hasMoreHistoryRef.current = false;
-      }
-
-      if (older.length === 0) {
-        pendingScrollRestoreRef.current = null;
-        return;
-      }
-
-      pushMessages(older);
-    } catch (err) {
-      console.error(err);
-      pendingScrollRestoreRef.current = null;
-    } finally {
-      isLoadingOlderRef.current = false;
-      setIsLoadingOlder(false);
-    }
-  };
-
-  const handleScroll = () => {
-    const el = scroller.current;
-    if (!el) return;
-
-    stickToBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight <
-      STICK_TO_BOTTOM_THRESHOLD_PX;
-
-    if (el.scrollTop < SCROLL_TOP_LOAD_THRESHOLD_PX) {
-      void loadOlderMessages();
-    }
-  };
-
   // If the role is not admin, then do not show internal messages (tool calls, etc).
   const envelopesAndSeparators = insertDateSeparators(
     messages
@@ -388,21 +231,12 @@ export default function Chat() {
       .reverse(),
   );
 
-  const scrollToBottom = (isSmooth: boolean = true) => {
-    if (scroller.current) {
-      scroller.current.scrollTo({
-        top: scroller.current.scrollHeight,
-        behavior: isSmooth ? "smooth" : "instant",
-      });
-    }
-  };
-
   return (
     activeConvId && (
       <div
-        ref={scroller}
-        onScroll={handleScroll}
-        className="grow pb-[8px] overflow-y-auto [scrollbar-gutter:stable]"
+        ref={scrollerRef}
+        onScroll={onScroll}
+        className="grow min-h-0 pb-[8px] overflow-y-auto [scrollbar-gutter:stable]"
       >
         <div className="min-h-[12px] flex justify-center items-center py-1">
           {isLoadingOlder && <Spinner size={16} />}
@@ -429,7 +263,7 @@ export default function Chat() {
                   activeAgentId,
                 )}
                 canReact={canReact}
-                canReply={canReact}
+                canReply={canReply}
                 repliedTo={messagesByExternalId.get(
                   replyTargetId(envOrSep.message) || "",
                 )}
@@ -439,23 +273,6 @@ export default function Chat() {
             ),
           )}
         </div>
-        {/* (
-          <button
-            style={{
-              width: "42px",
-              height: "42px",
-              position: "fixed",
-              bottom: "75px",
-              right: "20px",
-              backgroundColor: "#FFFFFF",
-              borderRadius: "50%",
-              boxShadow: "0 2px 10px rgba(0, 0, 0, 0.1)",
-            }}
-            onClick={() => scrollToBottom()}
-          >
-            <ChevronDown className="w-8 h-8 pt-1 text-foreground" />
-          </button>
-        ) */}
       </div>
     )
   );

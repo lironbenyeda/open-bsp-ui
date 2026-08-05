@@ -19,6 +19,7 @@ import {
 } from "@/utils/ReactionUtils";
 import { useCurrentAgent } from "@/queries/useAgents";
 import { useTranslation } from "@/hooks/useTranslation";
+import { messageActionTriggerClass } from "./messageActionClasses";
 
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
@@ -167,17 +168,10 @@ export function ReactionPicker({
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        className={
-          "absolute z-10 flex h-[28px] w-[28px] items-center justify-center " +
-          "rounded-full border border-border bg-background text-muted-foreground shadow " +
-          "opacity-0 pointer-events-none transition-opacity " +
-          "group-hover/message:opacity-100 group-hover/message:pointer-events-auto " +
-          "hover:bg-muted hover:text-foreground disabled:opacity-50 " +
-          (align === "right" ? "left-1 top-1" : "right-1 top-1") +
-          (open
-            ? " opacity-100 pointer-events-auto bg-muted text-foreground"
-            : "")
-        }
+        className={messageActionTriggerClass({
+          forceVisible: open,
+          horizontalPosition: align === "right" ? "left-1" : "right-1",
+        })}
         onClick={() => {
           setOpen((value) => !value);
           setShowFullPicker(false);

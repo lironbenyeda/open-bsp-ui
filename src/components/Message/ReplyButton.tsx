@@ -1,8 +1,10 @@
 import { Reply } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
+import { messageActionTriggerClass } from "./messageActionClasses";
 
 /**
- * Hover-revealed reply trigger, mirrored after the reaction picker styling.
+ * Reply trigger on a message bubble.
+ * Visible on hover (desktop) or when the message action tray is open (mobile long-press).
  */
 export default function ReplyButton({
   onReply,
@@ -31,14 +33,7 @@ export default function ReplyButton({
     <button
       type="button"
       disabled={disabled}
-      className={
-        "absolute z-10 flex h-[28px] w-[28px] items-center justify-center " +
-        "rounded-full border border-border bg-background text-muted-foreground shadow " +
-        "opacity-0 pointer-events-none transition-opacity " +
-        "group-hover/message:opacity-100 group-hover/message:pointer-events-auto " +
-        "hover:bg-muted hover:text-foreground disabled:opacity-50 " +
-        `${horizontal} top-1`
-      }
+      className={messageActionTriggerClass({ horizontalPosition: horizontal })}
       onClick={(event) => {
         event.stopPropagation();
         onReply();
